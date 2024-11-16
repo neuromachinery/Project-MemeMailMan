@@ -1,11 +1,11 @@
-from os import remove,path,listdir
+from os import remove,path,listdir,link
 from sys import argv
 from discord import File,Intents,Client, Interaction, app_commands,Object
 from telebot.async_telebot import AsyncTeleBot
 from telebot import ExceptionHandler
 from telebot.apihelper import ApiTelegramException
 from threading import Thread,Event
-from asyncio import run,sleep,Queue,QueueEmpty,create_task
+from asyncio import run,sleep,Queue,QueueEmpty,create_task,wait_for,to_thread
 from traceback import format_exc
 from dotenv import load_dotenv, dotenv_values
 from discord import app_commands
@@ -38,8 +38,8 @@ def get_queue_f():
 import FileManager
 from DBconnect import SocketTransiever
 
-Transiever = SocketTransiever()
-LOGGER = lambda *args:Transiever.send_message(sock=ADDRESS_DICT["DB"],sender_name=args[0],message_type="LOG",message=args[1:])
+Transiever = SocketTransiever(ADDRESS_DICT["MMM"])
+LOGGER = lambda *args:Transiever.send_message(sock=ADDRESS_DICT["DB"],sender_name=args[0],target_name="DB",message_type="LOG",message=args[1:])
 #getData = get_queue_f
 #reqData = lambda *args:req_queue.put_nowait(args)
 
@@ -56,7 +56,8 @@ config = dotenv_values(".env")
 
 #CWD = path.dirname(argv[0])
 CWD = path.dirname(path.realpath(__file__))
-SITE_URL = config["SITE_URL"]
+#SITE_URL = config["SITE_URL"]
+SITE_URL = "http://127.0.0.1:8000/chat"
 DISCORD_TOKEN = config["DISCORD_TOKEN"]
 DISCORD_SERVER = int(config["DISCORD_SERVER"])
 DISCORD_PERMISSIONS = Intents()
@@ -141,10 +142,12 @@ MISCELLANIOUS_LOGS_TABLE = "LogsMisc"
 TELEGRAM_LOGS_TABLE = "LogsTelegram"
 DISCORD_LOGS_TABLE =  "LogsDiscord"
 ROUTING_TABLE = "Routing"
+FILE_TABLE = "FilenamesSite"
 TABLES = (MISCELLANIOUS_LOGS_TABLE,
           TELEGRAM_LOGS_TABLE,
           DISCORD_LOGS_TABLE,
-          ROUTING_TABLE)
+          ROUTING_TABLE,
+          FILE_TABLE)
 CONTENT_LIMIT = 30
 
 def readable_string(string:str): 
@@ -279,6 +282,7 @@ class Site():
     def __init__(self,site_queue:Queue,*args,**kwargs):
         self.name = "MMM_SITE"
         self.server_url = SITE_URL
+        self.server_path = None
         self.queue = site_queue
         self.subscribers = queues.difference({self.queue})
         self.sio = AsyncClient()
@@ -294,17 +298,37 @@ class Site():
         await self.sio.disconnect()
     async def send_message(self, message):
         await self.sio.emit('send_message', message)
-
-    def on_connect(self):
+    
+    async def on_connect(self):
         print('Server connected')
+        if self.server_path:return
+        Transiever.send_message(ADDRESS_DICT["SITE"],"MMM","SITE","GET",None)
+        try:
+            message = await wait_for(to_thread(Transiever.receive_message),timeout=5)
+            self.server_path = message["message"]
+        except TimeoutError:
+            print("Site unresponsive")
 
     def on_disconnect(self):
         print("Server disconnected")
 
-    def on_message(self, data):
+    async def on_message(self, data):
         if "external" in data and data["external"]:
             return
-        request = ((data["name"],data["message"],data["time"]),data["unique_id"],data["channel"])
+        filepath = None
+        if "unique_id" in data:
+            file_id = data["unique_id"]
+            Transiever.send_message(ADDRESS_DICT["DB"],"MMM","DB","GET",(FILE_TABLE,"uuid4",file_id))
+            extention = None
+            try:
+                message = await wait_for(to_thread(Transiever.receive_message), timeout=5)
+                extention = path.join(MEDIA_PATH,message["message"][0][1]).split(".")[-1]
+            except TimeoutError:
+                print("DB unresponsive")
+            filepath = path.join(MEDIA_PATH,f"{file_id}.{extention}")
+            link(path.join(self.server_path,file_id),filepath)
+        
+        request = ((data["name"],data["message"],data["time"]),filepath,data["channel"])
         [queue.put_nowait(request) for queue in self.subscribers]
     async def process_queue(self):
         while not EXIT_FLAG.is_set():
