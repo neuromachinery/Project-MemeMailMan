@@ -56,8 +56,8 @@ config = dotenv_values(".env")
 
 #CWD = path.dirname(argv[0])
 CWD = path.dirname(path.realpath(__file__))
-#SITE_URL = config["SITE_URL"]
-SITE_URL = "http://127.0.0.1:8000/chat"
+SITE_URL = config["SITE_URL"]
+#SITE_URL = "http://127.0.0.1:8000/chat"
 DISCORD_TOKEN = config["DISCORD_TOKEN"]
 DISCORD_SERVER = int(config["DISCORD_SERVER"])
 DISCORD_PERMISSIONS = Intents()
@@ -299,12 +299,12 @@ class Site():
     async def send_message(self, message):
         await self.sio.emit('send_message', message)
     
-    async def on_connect(self):
+    def on_connect(self):
         print('Server connected')
         if self.server_path:return
-        Transiever.send_message(ADDRESS_DICT["SITE"],"MMM","SITE","GET",None)
+        Transiever.send_message(ADDRESS_DICT["SITE"],"MMM","SITE","GET","CWD+UPLOADS")
         try:
-            message = await wait_for(to_thread(Transiever.receive_message),timeout=5)
+            message = Transiever.receive_message(timeout=5)
             self.server_path = message["message"]
         except TimeoutError:
             print("Site unresponsive")
@@ -312,7 +312,7 @@ class Site():
     def on_disconnect(self):
         print("Server disconnected")
 
-    async def on_message(self, data):
+    def on_message(self, data):
         if "external" in data and data["external"]:
             return
         filepath = None
@@ -321,7 +321,7 @@ class Site():
             Transiever.send_message(ADDRESS_DICT["DB"],"MMM","DB","GET",(FILE_TABLE,"uuid4",file_id))
             extention = None
             try:
-                message = await wait_for(to_thread(Transiever.receive_message), timeout=5)
+                message = Transiever.receive_message(timeout=5)
                 extention = path.join(MEDIA_PATH,message["message"][0][1]).split(".")[-1]
             except TimeoutError:
                 print("DB unresponsive")
