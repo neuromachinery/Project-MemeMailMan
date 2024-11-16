@@ -1,0 +1,6 @@
+.env
+media
+buffer
+__pycache__
+*.bat
+DBconnect.py
