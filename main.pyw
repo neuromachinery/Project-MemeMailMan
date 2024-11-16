@@ -1,4 +1,4 @@
-from os import remove,path,listdir,link
+from os import remove,path,listdir,link,chdir
 from sys import argv
 from discord import File,Intents,Client, Interaction, app_commands,Object
 from telebot.async_telebot import AsyncTeleBot
@@ -51,11 +51,14 @@ queues = {telegram_queue,site_queue}
 #queues = {telegram_queue,discord_queue,site_queue}
 from datetime import datetime
 
+#CWD = path.dirname(argv[0])
+CWD = path.dirname(path.realpath(__file__))
+chdir(CWD)
+
 load_dotenv()
 config = dotenv_values(".env")
 
-#CWD = path.dirname(argv[0])
-CWD = path.dirname(path.realpath(__file__))
+
 SITE_URL = config["SITE_URL"]
 #SITE_URL = "http://127.0.0.1:8000/chat"
 DISCORD_TOKEN = config["DISCORD_TOKEN"]
