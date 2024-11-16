@@ -15,7 +15,7 @@ from socketio import AsyncClient,exceptions
 CLI_START_FLAG = Event()
 EXIT_FLAG = Event()
 exitSignal = EXIT_FLAG.set
-
+SOCKET_TIMEOUT = 15
 PROCESS_DELAY = 0.5
 HOST = "127.0.0.1"
 MMM_PORT = 54323
@@ -59,8 +59,8 @@ load_dotenv()
 config = dotenv_values(".env")
 
 
-SITE_URL = config["SITE_URL"]
-#SITE_URL = "http://127.0.0.1:8000/chat"
+#SITE_URL = config["SITE_URL"]
+SITE_URL = "http://127.0.0.1:8000/chat"
 DISCORD_TOKEN = config["DISCORD_TOKEN"]
 DISCORD_SERVER = int(config["DISCORD_SERVER"])
 DISCORD_PERMISSIONS = Intents()
@@ -307,7 +307,7 @@ class Site():
         if self.server_path:return
         Transiever.send_message(ADDRESS_DICT["SITE"],"MMM","SITE","GET","CWD+UPLOADS")
         try:
-            message = Transiever.receive_message(timeout=5)
+            message = Transiever.receive_message(timeout=SOCKET_TIMEOUT)
             self.server_path = message["message"]
         except TimeoutError:
             print("Site unresponsive")
@@ -324,8 +324,11 @@ class Site():
             Transiever.send_message(ADDRESS_DICT["DB"],"MMM","DB","GET",(FILE_TABLE,"uuid4",file_id))
             extention = None
             try:
-                message = Transiever.receive_message(timeout=5)
-                extention = path.join(MEDIA_PATH,message["message"][0][1]).split(".")[-1]
+                message = Transiever.receive_message(timeout=SOCKET_TIMEOUT)
+                if message:
+                    extention = path.join(MEDIA_PATH,message["message"][0][1]).split(".")[-1]
+                else:
+                    print("DB sent this: ", message)                
             except TimeoutError:
                 print("DB unresponsive")
             filepath = path.join(MEDIA_PATH,f"{file_id}.{extention}")
