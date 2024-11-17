@@ -59,8 +59,8 @@ load_dotenv()
 config = dotenv_values(".env")
 
 
-#SITE_URL = config["SITE_URL"]
-SITE_URL = "http://127.0.0.1:8000/chat"
+SITE_URL = config["SITE_URL"]
+#SITE_URL = "http://127.0.0.1:8000/chat"
 DISCORD_TOKEN = config["DISCORD_TOKEN"]
 DISCORD_SERVER = int(config["DISCORD_SERVER"])
 DISCORD_PERMISSIONS = Intents()
@@ -319,7 +319,7 @@ class Site():
         if "external" in data and data["external"]:
             return
         filepath = None
-        if "unique_id" in data:
+        if data["unique_id"]:
             file_id = data["unique_id"]
             Transiever.send_message(ADDRESS_DICT["DB"],"MMM","DB","GET",(FILE_TABLE,"uuid4",file_id))
             extention = None
