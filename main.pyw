@@ -289,7 +289,7 @@ class Site():
         self.queue = site_queue
         self.subscribers = queues.difference({self.queue})
         self.sio = AsyncClient()
-
+        self.connected = False
         # Регистрация обработчиков событий
         self.sio.on('connect', self.on_connect)
         self.sio.on('disconnect', self.on_disconnect)
@@ -300,10 +300,12 @@ class Site():
     async def disconnect(self):
         await self.sio.disconnect()
     async def send_message(self, message):
+        if not self.connected: await self.connect()
         await self.sio.emit('send_message', message)
     
     def on_connect(self):
         print('Server connected')
+        self.connected = True
         if self.server_path:return
         Transiever.send_message(ADDRESS_DICT["SITE"],"MMM","SITE","GET","CWD+UPLOADS")
         try:
@@ -314,6 +316,7 @@ class Site():
 
     def on_disconnect(self):
         print("Server disconnected")
+        self.connected = False
 
     def on_message(self, data):
         if "external" in data and data["external"]:
@@ -460,9 +463,12 @@ async def on_ready():
 Thread(target=Telegram(telegram_queue,exception_handler()).main,daemon=True,name="TELEGRAM").start() 
 #Thread(target=bot.run,args=[DISCORD_TOKEN],kwargs={"log_handler":None},daemon=True,name="DISCORD").start()
 print("started")
-try:Site(site_queue).start()
-except KeyboardInterrupt:
-    EXIT_FLAG.set()
-    run(bot.close())
-    buffer_clear()
-    quit()
+while True:
+    try:Site(site_queue).start()
+    except KeyboardInterrupt:
+        EXIT_FLAG.set()
+        run(bot.close())
+        buffer_clear()
+        quit()
+    except Exception as E:
+        LOGGER("MMM",MISCELLANIOUS_LOGS_TABLE,(str(E)+";".join(map(str,E.args)),now()))
