@@ -194,7 +194,7 @@ class Telegram():
                     channel = ROUTING[ROUTING.index(channel)].ID_to
                     user,text,msg_time = message
                     too_long_txt = None
-                    if len(text)>4000:
+                    if len(text)>1000:
                         if len(text)>10485760:
                             text = LOCALE[DEFAULT_LOCALE]['wtf_long']
                         else:
