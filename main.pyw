@@ -88,7 +88,8 @@ LOCALE = {
         "file_channel_ban":"В этом канале нельзя срать файлами",
         "file_not_found":"Директория не найдена",
         "me_desc":"Ваш ID: ",
-        "":"",
+        "too_long":"<БОТ: братан, полотна не читаю>",
+        "wtf_long":"<БОТ: братан, я такое даже в виде файла не могу прислать, Толстой бы гордился>",
         "":"",
         },
     "EN":{
@@ -104,7 +105,8 @@ LOCALE = {
         "file_channel_ban":"File-shitting is prohibited for this channel",
         "file_not_found":"Directory not found",
         "me_desc":"Your ID: ",
-        "":"",
+        "too_long":"<BOT: bruh, not reading all that>",
+        "wtf_long":"<BOT: bro threw a book at me>",
         "":"",
         }
     }
@@ -187,24 +189,41 @@ class Telegram():
                 if(self.queue.empty()):
                     await sleep(1)
                     continue
-                message,Path,channel = await self.queue.get()
-                channel = ROUTING[ROUTING.index(channel)].ID_to
-                user,text,msg_time = message
-                text = f"{user} {msg_time}: \n  {text}"
-                keyword_args = {"chat_id":GROUP_ID,"message_thread_id":channel} if type(channel)==int else {"chat_id":channel}
-                if(not Path):
-                    await self.bot.send_message(**keyword_args,text=text)
-                    self.queue.task_done()
-                    continue
-                ext = Path.split('.')[-1].lower()
                 try:
+                    message,Path,channel = await self.queue.get()
+                    channel = ROUTING[ROUTING.index(channel)].ID_to
+                    user,text,msg_time = message
+                    too_long_txt = None
+                    if len(text)>4000:
+                        if len(text)>10485760:
+                            text = LOCALE[DEFAULT_LOCALE]['wtf_long']
+                        else:
+                            too_long_txt = path.join(CWD,"buffer","too_long.txt")
+                            with open(too_long_txt,"w") as file:
+                                file.write(text)
+                                text = LOCALE[DEFAULT_LOCALE]['too_long']
+                    text = f"{user} {msg_time}: \n  {text}"
+                    keyword_args = {"chat_id":GROUP_ID,"message_thread_id":channel} if type(channel)==int else {"chat_id":channel}
+                    
+                    if(not Path):
+                        await self.bot.send_message(**keyword_args,text=text)
+                        self.queue.task_done()
+                        continue
+                    ext = Path.split('.')[-1].lower()
+                
                     with open(Path,"br") as file:
                         method,argument_name = self.MEDIA_METHODS.get(ext,self.bot.send_document)
                         keyword_args.update({argument_name:file})
                         await method(**keyword_args,caption=text)
                     remove(Path)
-                except Exception as E:
-                    LOGGER(self.name,MISCELLANIOUS_LOGS_TABLE,(str(E),now()))
+                    if too_long_txt:
+                        with open(too_long_txt,"r") as file:
+                            keyword_args.update({argument_name:file})
+                            await self.bot.send_document(**keyword_args,caption=text)
+                        remove(too_long_txt)
+                except Exception:
+                    E = format_exc()
+                    LOGGER(self.name,MISCELLANIOUS_LOGS_TABLE,(E,now()))
                 finally:self.queue.task_done()
         @self.bot.message_handler(commands=["me"])
         async def me(message):
@@ -245,8 +264,9 @@ class Telegram():
             try:
                 request = ((message.from_user.username,message.text,now()),None,30)
                 [await queue.put(request) for queue in self.subscribers]
-            except Exception as E:
-                LOGGER(self.name,MISCELLANIOUS_LOGS_TABLE,(str(E),now()))
+            except Exception:
+                    E = format_exc()
+                    LOGGER(self.name,MISCELLANIOUS_LOGS_TABLE,(str(E),now()))
         @self.bot.message_handler(content_types=["text","sticker","photo","video","gif"])
         async def messages(message):
             time = now()
@@ -278,7 +298,8 @@ class Telegram():
         while not EXIT_FLAG.is_set():
             try:
                 run(self.bot_thread())
-            except Exception as E:
+            except Exception:
+                E = format_exc()
                 LOGGER(MISCELLANIOUS_LOGS_TABLE,(str(E),now()))
                 EXIT_FLAG.set()
 class Site():
@@ -470,5 +491,6 @@ while True:
         run(bot.close())
         buffer_clear()
         quit()
-    except Exception as E:
-        LOGGER("MMM",MISCELLANIOUS_LOGS_TABLE,(str(E)+";".join(map(str,E.args)),now()))
+    except Exception:
+        E = format_exc()
+        LOGGER("MMM",MISCELLANIOUS_LOGS_TABLE,E,now())
