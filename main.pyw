@@ -59,8 +59,8 @@ load_dotenv()
 config = dotenv_values(".env")
 
 
-SITE_URL = config["SITE_URL"]
-#SITE_URL = "http://127.0.0.1:8000/chat"
+#SITE_URL = config["SITE_URL"]
+SITE_URL = "http://127.0.0.1:8000/chat"
 DISCORD_TOKEN = config["DISCORD_TOKEN"]
 DISCORD_SERVER = int(config["DISCORD_SERVER"])
 DISCORD_PERMISSIONS = Intents()
@@ -311,17 +311,17 @@ class Site():
         self.sio = AsyncClient()
         self.connected = False
         # Регистрация обработчиков событий
-        self.sio.on('connect', self.on_connect)
-        self.sio.on('disconnect', self.on_disconnect)
-        self.sio.on('receive_message', self.on_message)
+        self.sio.on('connect', self.on_connect,namespace="/chat")
+        self.sio.on('disconnect', self.on_disconnect,namespace="/chat")
+        self.sio.on('receive_message', self.on_message,namespace="/chat")
 
     async def connect(self):
-        await self.sio.connect(self.server_url)
+        await self.sio.connect(self.server_url,namespaces="/chat")
     async def disconnect(self):
         await self.sio.disconnect()
     async def send_message(self, message):
         if not self.connected: await self.connect()
-        await self.sio.emit('send_message', message)
+        await self.sio.emit('send_message', message,namespace="/chat")
     
     def on_connect(self):
         print('Server connected')
