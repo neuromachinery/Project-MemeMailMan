@@ -59,8 +59,8 @@ load_dotenv()
 config = dotenv_values(".env")
 
 
-#SITE_URL = config["SITE_URL"]
-SITE_URL = "http://127.0.0.1:8000/chat"
+SITE_URL = config["SITE_URL"]
+#SITE_URL = "http://127.0.0.1:8000/chat"
 DISCORD_TOKEN = config["DISCORD_TOKEN"]
 DISCORD_SERVER = int(config["DISCORD_SERVER"])
 DISCORD_PERMISSIONS = Intents()
