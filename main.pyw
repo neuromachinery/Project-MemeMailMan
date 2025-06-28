@@ -6,6 +6,7 @@ from telebot import ExceptionHandler
 from telebot.apihelper import ApiTelegramException
 from threading import Thread,Event
 from asyncio import run,sleep,Queue,QueueEmpty,create_task,wait_for,to_thread
+from asyncio import exceptions as asyncio_exceptions
 from traceback import format_exc
 from dotenv import load_dotenv, dotenv_values
 from discord import app_commands
@@ -178,10 +179,10 @@ class Telegram():
             'jpg': (self.bot.send_photo,"photo"),
             'jpeg':(self.bot.send_photo,"photo"),
             'png': (self.bot.send_photo,"photo"),
-            'gif': (self.bot.send_animation,""),
-            'mp4': (self.bot.send_video,),
-            'mov': (self.bot.send_video,),
-            'avi': (self.bot.send_video,)
+            'gif': (self.bot.send_animation,"animation"),
+            'mp4': (self.bot.send_video,"video"),
+            'mov': (self.bot.send_video,"video"),
+            'avi': (self.bot.send_video,"video")
         }
     async def bot_thread(self):
         async def queue_monitor(self:Telegram):
@@ -204,7 +205,7 @@ class Telegram():
                                 text = LOCALE[DEFAULT_LOCALE]['too_long']
                     text = f"{user} {msg_time}: \n  {text}"
                     keyword_args = {"chat_id":GROUP_ID,"message_thread_id":channel} if type(channel)==int else {"chat_id":channel}
-                    
+                    print(message,Path,channel)
                     if(not Path):
                         await self.bot.send_message(**keyword_args,text=text)
                         continue
@@ -358,6 +359,7 @@ class Site():
             link(path.join(self.server_path,file_id),filepath)
         
         request = ((data["name"],data["message"],data["time"]),filepath,data["channel"])
+        print(request)
         [queue.put_nowait(request) for queue in self.subscribers]
     async def process_queue(self):
         while not EXIT_FLAG.is_set():
@@ -376,6 +378,7 @@ class Site():
                     self.queue.task_done()
             except exceptions.ConnectionError:
                 pass
+            except asyncio_exceptions.CancelledError:quit()
             except Exception:
                 E = format_exc()
                 LOGGER(self.name,MISCELLANIOUS_LOGS_TABLE,(E,now()))
