@@ -289,7 +289,7 @@ class Telegram():
             with open(Path,"wb") as pic:
                 file = await self.bot.get_file(media.file_id)
                 pic.write(await self.bot.download_file(file.file_path))
-            request = ((user,text+f" [{media.file_unique_id}.{ext}]",time),Path,channel)
+            request = ((user,text+f" {media.file_unique_id}.{ext}",time),Path,channel)
             [await queue.put(request) for queue in self.subscribers]
         _ = create_task(queue_monitor(self))
         await self.bot.polling() 
