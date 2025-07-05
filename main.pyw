@@ -1,4 +1,4 @@
-from os import remove,path,listdir,link,chdir
+from os import remove,path,listdir,link,chdir,walk
 from sys import argv
 from discord import File,Intents,Client, Interaction, app_commands,Object
 from telebot.async_telebot import AsyncTeleBot
@@ -12,6 +12,11 @@ from dotenv import load_dotenv, dotenv_values
 from discord import app_commands
 from discord.ext import commands
 from socketio import AsyncClient,exceptions
+from datetime import datetime
+
+import FileManager
+from DBconnect import SocketTransiever
+from routing import ROUTING
 
 CLI_START_FLAG = Event()
 EXIT_FLAG = Event()
@@ -28,7 +33,7 @@ ADDRESS_DICT = {
     "SITE":(HOST,SITE_PORT)
 }
 
-from routing import ROUTING
+
 log_queue = Queue()
 get_queue = Queue()
 req_queue = Queue()
@@ -36,21 +41,17 @@ def get_queue_f():
     try:return get_queue.get_nowait()
     except QueueEmpty:return None
 
-import FileManager
-from DBconnect import SocketTransiever
+
 
 Transiever = SocketTransiever(ADDRESS_DICT["MMM"])
 LOGGER = lambda *args:Transiever.send_message(sock=ADDRESS_DICT["DB"],sender_name=args[0],target_name="DB",message_type="LOG",message=args[1:])
-#getData = get_queue_f
-#reqData = lambda *args:req_queue.put_nowait(args)
 
 
 telegram_queue = Queue()
 discord_queue = Queue()
 site_queue = Queue()
 queues = {telegram_queue,site_queue}
-#queues = {telegram_queue,discord_queue,site_queue}
-from datetime import datetime
+
 
 #CWD = path.dirname(argv[0])
 CWD = path.dirname(path.realpath(__file__))
@@ -60,18 +61,19 @@ load_dotenv()
 config = dotenv_values(".env")
 
 
-#SITE_URL = config["SITE_URL"]
-SITE_URL = "http://127.0.0.1:8000/chat"
+SITE_URL = config["SITE_URL"]
 DISCORD_TOKEN = config["DISCORD_TOKEN"]
 DISCORD_SERVER = int(config["DISCORD_SERVER"])
+TELEGRAM_TOKEN = config["TELEGRAM_TOKEN"]
+GROUP_ID = config["TELEGRAM_GROUP"]
+MUSIC_PATH = config["MUSIC_PATH"]
+MEDIA_LIMIT = config["MEDIA_LIMIT"]
+
 DISCORD_PERMISSIONS = Intents()
 DISCORD_PERMISSIONS.messages=True
 DISCORD_PERMISSIONS.message_content = True
 DISCORD_PERMISSIONS.members = True
 DISCORD_PERMISSIONS.guilds = True
-
-TELEGRAM_TOKEN = config["TELEGRAM_TOKEN"]
-GROUP_ID = config["TELEGRAM_GROUP"]
 
 FILES_DIRECTORY = FileManager.SharedDirectory
 MEDIA_PATH = path.join(CWD,"media")
@@ -111,8 +113,8 @@ LOCALE = {
         "":"",
         }
     }
-locale = lambda arg:LOCALE[DEFAULT_LOCALE].get(arg,LOCALE[DEFAULT_LOCALE]["default"])
-DEFAULT_LOCALE = "RU"
+locale = lambda arg:LOCALE[CURRENT_LOCALE].get(arg,LOCALE[CURRENT_LOCALE]["default"])
+CURRENT_LOCALE = "RU"
 FILES_DISCORD_BLACKLIST = [
     936569889999699988,
     922499261319499867,
@@ -142,20 +144,73 @@ T_COMMANDS = [
 ]
 
 DISCORD_FILE_LIMIT=int(24.99*1024*1024)
-TELEGRAM_FILE_LIMIT=int(49.9*1024*1024)
+TELEGRAM_UPLOAD_FILE_LIMIT=int(49.9*1024*1024)
+TELEGRAM_DOWNLOAD_FILE_LIMIT=int(19.9*1024*1024)
 
 MISCELLANIOUS_LOGS_TABLE = "LogsMisc"
 TELEGRAM_LOGS_TABLE = "LogsTelegram"
 DISCORD_LOGS_TABLE =  "LogsDiscord"
 ROUTING_TABLE = "Routing"
 FILE_TABLE = "FilenamesSite"
-TABLES = (MISCELLANIOUS_LOGS_TABLE,
-          TELEGRAM_LOGS_TABLE,
-          DISCORD_LOGS_TABLE,
-          ROUTING_TABLE,
-          FILE_TABLE)
+MUSIC_LOGS_TABLE = "MusicLogs"
+TABLES = (
+    MISCELLANIOUS_LOGS_TABLE,
+    TELEGRAM_LOGS_TABLE,
+    DISCORD_LOGS_TABLE,
+    ROUTING_TABLE,
+    FILE_TABLE,
+    MUSIC_LOGS_TABLE,
+)
 CONTENT_LIMIT = 30
-
+def countingSort(arr, exp1): 
+    n = len(arr) 
+    output = [0] * (n) 
+    count = [0] * (10) 
+    for i in range(0, n): 
+        index = (arr[i][1][0]/exp1) 
+        count[int((index)%10)] += 1
+    for i in range(1,10): 
+        count[i] += count[i-1] 
+    i = n-1
+    while i>=0: 
+        index = (arr[i][1][0]/exp1) 
+        output[ count[ int((index)%10) ] - 1] = arr[i]
+        count[int((index)%10)] -= 1
+        i -= 1
+    i = 0
+    for i in range(0,len(arr)): 
+        arr[i] = output[i] 
+def radixSort(arr):
+    "Directly sorts lists of such structure: list[tuple[str,tuple[int,int]]]"
+    max1 = max(arr,key=lambda val:val[1][0])[1][0]
+    exp = 1
+    while max1 // exp > 0:
+        countingSort(arr,exp)
+        exp *= 10
+def calculateMemeSpace() -> dict[int,tuple[int,int]]:
+    "Calculates a dictionary of modification dates of all downloaded media by their paths, plus a total diskspace by 'total'."
+    result = {"total":0}
+    for dirpath, dirnames, filenames in walk(MEDIA_PATH,followlinks=True):
+        for file in filenames:
+            file_path = path.join(dirpath, file)
+            size = path.getsize(file_path)
+            result["total"] += size
+            result[file_path] = int(path.getmtime(file_path)),size
+    return result
+MemeSpace = calculateMemeSpace()
+def purge(amount:int): # TODO
+    total = MemeSpace["total"]
+    target = total - amount
+    memes = list(MemeSpace.items())[1:]
+    radixSort(memes)
+    purge_amount, i = 0,0
+    while total - purge_amount > target:
+        purge_amount += memes[i][1][1]
+        i+=1
+    for meme,_size in tuple(memes[:i]):
+        remove(meme)
+        del MemeSpace[meme]
+    MemeSpace["total"] = total - purge_amount
 def readable_string(string:str): 
     return all(ord(char) < 128 or (1040 <= ord(char) <= 1103) for char in string)
 def readable_iterable(strings,default:str):
@@ -197,12 +252,12 @@ class Telegram():
                     too_long_txt = None
                     if len(text)>1000:
                         if len(text)>10485760:
-                            text = LOCALE[DEFAULT_LOCALE]['wtf_long']
+                            text = locale('wtf_long')
                         else:
                             too_long_txt = path.join(CWD,"buffer","too_long.txt")
                             with open(too_long_txt,"w") as file:
                                 file.write(text)
-                                text = LOCALE[DEFAULT_LOCALE]['too_long']
+                                text = locale('too_long')
                     text = f"{user} {msg_time}: \n  {text}"
                     keyword_args = {"chat_id":GROUP_ID,"message_thread_id":channel} if type(channel)==int else {"chat_id":channel}
                     print(message,Path,channel)
@@ -215,7 +270,7 @@ class Telegram():
                         method,argument_name = self.MEDIA_METHODS.get(ext,self.bot.send_document)
                         keyword_args.update({argument_name:file})
                         await method(**keyword_args,caption=text)
-                    remove(Path)
+                    #remove(Path)
                     if too_long_txt:
                         with open(too_long_txt,"r") as file:
                             keyword_args.update({argument_name:file})
@@ -227,7 +282,7 @@ class Telegram():
                 finally:self.queue.task_done()
         @self.bot.message_handler(commands=["me"])
         async def me(message):
-            await self.bot.send_message(message.chat.id,f"{LOCALE[DEFAULT_LOCALE]['me_desc']}{message.chat.id}")
+            await self.bot.send_message(message.chat.id,f"{locale('me_desc')}{message.chat.id}")
         @self.bot.message_handler(commands=["start"])
         async def start(message):
             cmds = "\n".join(["/"+cmd.replace('<arg>',locale('arg')) for cmd in T_COMMANDS])
@@ -242,7 +297,7 @@ class Telegram():
             if not dirname in FileManager.dirList(FILES_DIRECTORY):
                 return
             bot_message = await self.bot.send_message(ret_id,locale("packing"),reply_to_message_id=message.message_id)
-            zips = FileManager.filePack(dirname,TELEGRAM_FILE_LIMIT)
+            zips = FileManager.filePack(dirname,TELEGRAM_UPLOAD_FILE_LIMIT)
             if type(zips)==str:
                 LOGGER(self.name,MISCELLANIOUS_LOGS_TABLE,(zips,time))
                 buffer_clear()
@@ -267,6 +322,31 @@ class Telegram():
             except Exception:
                     E = format_exc()
                     LOGGER(self.name,MISCELLANIOUS_LOGS_TABLE,(str(E),now()))
+        @self.bot.message_handler(commands=["language"])
+        async def language(message):
+            "Changes between two locale options"
+            locales = tuple(LOCALE.keys())
+            CURRENT_LOCALE = locales[not locales.index(CURRENT_LOCALE)]
+        @self.bot.message_handler(func=lambda message:message.chat.type=="private" and message.audio)
+        async def audio_upload(message):
+            "Uploads audio from user to media server"
+            try:
+                time = now()
+                text = message.text if message.text else message.caption
+                media = message.audio
+                user = message.from_user
+                user = readable_iterable((user.full_name,user.first_name,user.last_name,user.username),user.id)
+                ext = media.mime_type
+                file = await self.bot.get_file(media.file_id)
+                filename = f"{media.title} - {media.performer}.{ext}" if media.title and media.performer else f"{media.file_unique_id}.{ext}"
+                Path = path.join(MUSIC_PATH,filename)
+                file_bytes = await self.bot.download_file(file.file_path)
+                with open(Path,"wb") as f:
+                    f.write(file_bytes)
+                LOGGER(self.name,MUSIC_LOGS_TABLE,(user,filename,media.title,media.performer,text,time))
+            except Exception:
+                    E = format_exc()
+                    LOGGER(self.name,MISCELLANIOUS_LOGS_TABLE,(str(E),now()))
         @self.bot.message_handler(content_types=["text","sticker","photo","video","gif"])
         async def messages(message):
             time = now()
@@ -287,9 +367,12 @@ class Telegram():
             media = media[-1] if isinstance(media,list) else media # if it's message.photo
             LOGGER(self.name,TELEGRAM_LOGS_TABLE,(user,text,media.file_unique_id,time,message.message_thread_id))
             Path = path.join(MEDIA_PATH,f"{media.file_unique_id}.{ext}")
+            if MemeSpace["total"]+TELEGRAM_DOWNLOAD_FILE_LIMIT>=MEDIA_LIMIT:
+                purge(TELEGRAM_DOWNLOAD_FILE_LIMIT)
             with open(Path,"wb") as pic:
                 file = await self.bot.get_file(media.file_id)
                 pic.write(await self.bot.download_file(file.file_path))
+                MemeSpace["total"] += file.file_size
             request = ((user,text+f" {media.file_unique_id}.{ext}",time),Path,channel)
             [await queue.put(request) for queue in self.subscribers]
         _ = create_task(queue_monitor(self))
@@ -311,7 +394,6 @@ class Site():
         self.subscribers = queues.difference({self.queue})
         self.sio = AsyncClient()
         self.connected = False
-        # Регистрация обработчиков событий
         self.sio.on('connect', self.on_connect,namespace="/chat")
         self.sio.on('disconnect', self.on_disconnect,namespace="/chat")
         self.sio.on('receive_message', self.on_message,namespace="/chat")
