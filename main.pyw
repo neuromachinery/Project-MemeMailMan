@@ -425,7 +425,7 @@ class Site():
         self.sio.on('disconnect', self.on_disconnect,namespace="/chat")
         self.sio.on('receive_message', self.on_message,namespace="/chat")
 
-        self.sio.on('connect', self.on_connect,namespace="/direct")
+        self.sio.on('connect', self.on_direct_connect,namespace="/direct")
         self.sio.on('disconnect', self.on_direct_disconnect,namespace="/direct")
         self.sio.on('receive_direct_message', self.on_direct_message,namespace="/direct")
     async def connect(self):
@@ -437,10 +437,10 @@ class Site():
         if not self.connected: await self.connect()
         await self.sio.emit('send_message', message,namespace=namespace)
     def on_direct_connect(self):
-        print('Direct connected')
+        print(f'Direct connected: {self.sio.sid}')
         self.direct_connected = True
     def on_connect(self):
-        print('Server connected')
+        print(f'Server connected: {self.sio.sid}')
         self.connected = True
         if self.server_path:return
         Transiever.send_message(ADDRESS_DICT["SITE"],"MMM","SITE","GET","CWD+UPLOADS")
