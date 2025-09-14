@@ -426,17 +426,19 @@ class Site():
         self.sio.on('receive_message', self.on_message,namespace="/chat")
 
         self.sio.on('connect', self.on_connect,namespace="/direct")
-        self.sio.on('disconnect', self.on_disconnect,namespace="/direct")
+        self.sio.on('disconnect', self.on_direct_disconnect,namespace="/direct")
         self.sio.on('receive_direct_message', self.on_direct_message,namespace="/direct")
-    async def connect(self,namespace):
-        await self.sio.connect(self.server_url,headers={"bot":BOT_KEY},namespaces=namespace)
+    async def connect(self):
+        await self.sio.connect(self.server_url,headers={"bot":BOT_KEY},namespaces=["/chat","/direct"])
     async def disconnect(self):
         await self.sio.disconnect()
+        self.direct_connected, self.connected = False,False
     async def send_message(self, message, namespace):
-        if not self.connected: await self.connect(namespace=namespace)
+        if not self.connected: await self.connect()
         await self.sio.emit('send_message', message,namespace=namespace)
     def on_direct_connect(self):
         print('Direct connected')
+        self.direct_connected = True
     def on_connect(self):
         print('Server connected')
         self.connected = True
@@ -447,7 +449,9 @@ class Site():
             self.server_path = message["message"]
         except TimeoutError:
             print("Site unresponsive")
-
+    def on_direct_disconnect(self):
+        print("Direct disconnected")
+        self.direct_connected = False
     def on_disconnect(self):
         print("Server disconnected")
         self.connected = False
@@ -480,8 +484,7 @@ class Site():
     async def process_queue(self):
         while not EXIT_FLAG.is_set():
             try:
-                await self.connect("/chat")
-                await self.connect("/direct")
+                await self.connect()
                 while not EXIT_FLAG.is_set():
                     queues_empty = self.queue.empty(),self.direct_queue.empty()
                     if(all(queues_empty)):
@@ -503,8 +506,8 @@ class Site():
                         await self.send_message({"name":user,"time":time,"message":text,"room_uuid":room_uuid},namespace="/chat")
                         self.queue.task_done()  
                     
-            except exceptions.ConnectionError:
-                pass
+            except exceptions.ConnectionError as E:
+                print(E,str(E),*E,**E,)
             except asyncio_exceptions.CancelledError:quit()
             except Exception:
                 E = format_exc()
