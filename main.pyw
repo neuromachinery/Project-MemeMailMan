@@ -3,6 +3,7 @@ from sys import argv
 from discord import File,Intents,Client, Interaction, app_commands,Object
 from telebot.async_telebot import AsyncTeleBot
 from telebot import ExceptionHandler
+from telebot.types import ReactionTypeEmoji
 from telebot.apihelper import ApiTelegramException
 from threading import Thread,Event
 from asyncio import run,sleep,Queue,QueueEmpty,create_task,wait_for,to_thread
@@ -32,8 +33,8 @@ ADDRESS_DICT = {
     "MMM":(HOST,MMM_PORT),
     "SITE":(HOST,SITE_PORT)
 }
-ME = "@Neur0Devil"
-
+#ME = "@Neur0Devil"
+ME = 785926638
 log_queue = Queue()
 get_queue = Queue()
 req_queue = Queue()
@@ -156,7 +157,7 @@ DISCORD_LOGS_TABLE =  "LogsDiscord"
 ROUTING_TABLE = "Routing"
 FILE_TABLE = "FilenamesSite"
 MUSIC_LOGS_TABLE = "MusicLogs"
-MESSAGE_ROOM_TABLE = "MMMrooms"
+MESSAGE_ROOM_TABLE = "MMMRooms"
 TABLES = (
     MISCELLANIOUS_LOGS_TABLE,
     TELEGRAM_LOGS_TABLE,
@@ -286,19 +287,22 @@ class Telegram():
             user,text,msg_time,*_ = message
             if len(text)>10485760:
                 text = locale('wtf_long')
-            text = f"{user} {msg_time}: \n  {text}"
-            message_id = await self.bot.send_message(chat_id=ME,text=text).message_id
+            text = f"{user} -> [{room_uuid}]: \n  {text}"
+            message = await self.bot.send_message(chat_id=ME,text=text)
+            message_id = message.message_id
             LOGGER(self.name,MESSAGE_ROOM_TABLE,(message_id,room_uuid))
         except Exception:
             E = format_exc()
             LOGGER(self.name,MISCELLANIOUS_LOGS_TABLE,(E,now()))
-        finally:self.queue.task_done()
+        finally:self.direct_queue.task_done()
     async def bot_thread(self):
         async def queue_monitor(self:Telegram):
             while not EXIT_FLAG.is_set():
                 if(not self.queue.empty()):
+                    print(">chat")
                     await self.process_chat()
                 if(not self.direct_queue.empty()):
+                    print(">direct")
                     await self.process_direct()
                 await sleep(1)
                 continue
@@ -372,7 +376,14 @@ class Telegram():
                     LOGGER(self.name,MISCELLANIOUS_LOGS_TABLE,(str(E),now()))
         @self.bot.message_handler(func=lambda message:message.chat.type=="private" and message.reply_to_message)
         async def direct_message(message):
-            pass
+            Transiever.send_message(ADDRESS_DICT["DB"],sender_name="MMM",target_name="DB",message_type="GET",message=(MESSAGE_ROOM_TABLE,"message_id",message.reply_to_message.message_id,))
+            data = Transiever.receive_message(timeout=SOCKET_TIMEOUT)
+            if not data:
+                await self.bot.set_message_reaction(ME, message.id, [ReactionTypeEmoji('💔')], is_big=False)
+                return
+            room_uuid = data["message"][0][1]
+            await site_direct_queue.put((("Neur0Devil",message.text,message.date),room_uuid))
+            await self.bot.set_message_reaction(ME, message.id, [ReactionTypeEmoji('❤')], is_big=False)
         @self.bot.message_handler(content_types=["text","sticker","photo","video","gif"])
         async def messages(message):
             time = now()
@@ -427,14 +438,16 @@ class Site():
 
         self.sio.on('connect', self.on_direct_connect,namespace="/direct")
         self.sio.on('disconnect', self.on_direct_disconnect,namespace="/direct")
-        self.sio.on('receive_direct_message', self.on_direct_message,namespace="/direct")
+        self.sio.on('message', self.on_direct_message,namespace="/direct")
+        self.sio.on('room_registered', self.on_room_register, namespace="/direct")
     async def connect(self):
-        await self.sio.connect(self.server_url,headers={"bot":BOT_KEY},namespaces=["/chat","/direct"])
+        await self.sio.connect(self.server_url,headers={"bot":BOT_KEY},namespaces=["/chat","/direct"],wait=True,retry=10)
     async def disconnect(self):
         await self.sio.disconnect()
         self.direct_connected, self.connected = False,False
+    async def on_room_register(self, data):
+        print(f"Direct room registered: {data["room_uuid"]}")
     async def send_message(self, message, namespace):
-        if not self.connected: await self.connect()
         await self.sio.emit('send_message', message,namespace=namespace)
     def on_direct_connect(self):
         print(f'Direct connected: {self.sio.sid}')
@@ -498,16 +511,14 @@ class Site():
                         await self.send_message({"name":user,"time":time,"message":text,"unique_id":path,"channel":channel,"external":True},namespace="/chat")
                         self.queue.task_done()    
                     if(not queues_empty[1]):
-                        thing = await self.queue.get()
+                        thing = await self.direct_queue.get()
                         message,room_uuid,*_ = thing
                         user,text,time,*_ = message
-                        if not channel in ROUTING or ROUTING[::-1][ROUTING.index(channel)].ID_to != -1:
-                            continue
-                        await self.send_message({"name":user,"time":time,"message":text,"room_uuid":room_uuid},namespace="/chat")
-                        self.queue.task_done()  
+                        await self.send_message({"name":user,"time":time,"message":text,"room_uuid":room_uuid},namespace="/direct")
+                        self.direct_queue.task_done()  
                     
             except exceptions.ConnectionError as E:
-                print(E,str(E),*E,**E,)
+                print(str(E))
             except asyncio_exceptions.CancelledError:quit()
             except Exception:
                 E = format_exc()
