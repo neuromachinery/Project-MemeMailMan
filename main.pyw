@@ -32,7 +32,7 @@ ADDRESS_DICT = {
     "MMM":(HOST,MMM_PORT),
     "SITE":(HOST,SITE_PORT)
 }
-
+ME = "@Neur0Devil"
 
 log_queue = Queue()
 get_queue = Queue()
@@ -42,14 +42,16 @@ def get_queue_f():
     except QueueEmpty:return None
 
 
-
+Transiever_queue = Queue()
 Transiever = SocketTransiever(ADDRESS_DICT["MMM"])
 LOGGER = lambda *args:Transiever.send_message(sock=ADDRESS_DICT["DB"],sender_name=args[0],target_name="DB",message_type="LOG",message=args[1:])
 
 
 telegram_queue = Queue()
+telegram_direct_queue = Queue()
 discord_queue = Queue()
 site_queue = Queue()
+site_direct_queue = Queue()
 queues = {telegram_queue,site_queue}
 
 
@@ -68,6 +70,7 @@ TELEGRAM_TOKEN = config["TELEGRAM_TOKEN"]
 GROUP_ID = config["TELEGRAM_GROUP"]
 MUSIC_PATH = config["MUSIC_PATH"]
 MEDIA_LIMIT = int(config["MEDIA_LIMIT"])
+BOT_KEY = config["BOT_KEY"]
 
 DISCORD_PERMISSIONS = Intents()
 DISCORD_PERMISSIONS.messages=True
@@ -153,6 +156,7 @@ DISCORD_LOGS_TABLE =  "LogsDiscord"
 ROUTING_TABLE = "Routing"
 FILE_TABLE = "FilenamesSite"
 MUSIC_LOGS_TABLE = "MusicLogs"
+MESSAGE_ROOM_TABLE = "MMMrooms"
 TABLES = (
     MISCELLANIOUS_LOGS_TABLE,
     TELEGRAM_LOGS_TABLE,
@@ -225,10 +229,11 @@ class exception_handler(ExceptionHandler):
         LOGGER("MMM",MISCELLANIOUS_LOGS_TABLE,(str(exception)+";".join(map(str,args)),now()))
         return True
 class Telegram():
-    def __init__(self,telegram_queue:Queue,exception_handler:ExceptionHandler) -> None:
+    def __init__(self,telegram_queue:Queue,telegram_direct_queue:Queue,exception_handler:ExceptionHandler) -> None:
         self.name = "Telegram"
         self.bot = AsyncTeleBot(TELEGRAM_TOKEN,exception_handler=exception_handler)
         self.queue = telegram_queue
+        self.direct_queue = telegram_direct_queue
         self.subscribers = queues.difference({self.queue})
         self.MEDIA_METHODS = {
             'jpg': (self.bot.send_photo,"photo"),
@@ -239,47 +244,65 @@ class Telegram():
             'mov': (self.bot.send_video,"video"),
             'avi': (self.bot.send_video,"video")
         }
+    async def process_chat(self):
+        try:
+            message,Path,channel = await self.queue.get()
+            channel = ROUTING[ROUTING.index(channel)].ID_to
+            user,text,msg_time = message
+            too_long_txt = None
+            if len(text)>1000:
+                if len(text)>10485760:
+                    text = locale('wtf_long')
+                else:
+                    too_long_txt = path.join(CWD,"buffer","too_long.txt")
+                    with open(too_long_txt,"w") as file:
+                        file.write(text)
+                        text = locale('too_long')
+            text = f"{user} {msg_time}: \n  {text}"
+            keyword_args = {"chat_id":GROUP_ID,"message_thread_id":channel} if type(channel)==int else {"chat_id":channel}
+            print(message,Path,channel)
+            if(not Path):
+                await self.bot.send_message(**keyword_args,text=text)
+                return
+            ext = Path.split('.')[-1].lower()
+        
+            with open(Path,"br") as file:
+                method,argument_name = self.MEDIA_METHODS.get(ext,self.bot.send_document)
+                keyword_args.update({argument_name:file})
+                await method(**keyword_args,caption=text)
+            #remove(Path)
+            if too_long_txt:
+                with open(too_long_txt,"r") as file:
+                    keyword_args.update({argument_name:file})
+                    await self.bot.send_document(**keyword_args,caption=text)
+                remove(too_long_txt)
+        except Exception:
+            E = format_exc()
+            LOGGER(self.name,MISCELLANIOUS_LOGS_TABLE,(E,now()))
+        finally:self.queue.task_done()
+    async def process_direct(self):
+        try:
+            message,room_uuid,*_ = await self.direct_queue.get()
+            user,text,msg_time,*_ = message
+            if len(text)>10485760:
+                text = locale('wtf_long')
+            text = f"{user} {msg_time}: \n  {text}"
+            message_id = await self.bot.send_message(chat_id=ME,text=text).message_id
+            LOGGER(self.name,MESSAGE_ROOM_TABLE,(message_id,room_uuid))
+        except Exception:
+            E = format_exc()
+            LOGGER(self.name,MISCELLANIOUS_LOGS_TABLE,(E,now()))
+        finally:self.queue.task_done()
     async def bot_thread(self):
         async def queue_monitor(self:Telegram):
             while not EXIT_FLAG.is_set():
-                if(self.queue.empty()):
-                    await sleep(1)
-                    continue
-                try:
-                    message,Path,channel = await self.queue.get()
-                    channel = ROUTING[ROUTING.index(channel)].ID_to
-                    user,text,msg_time = message
-                    too_long_txt = None
-                    if len(text)>1000:
-                        if len(text)>10485760:
-                            text = locale('wtf_long')
-                        else:
-                            too_long_txt = path.join(CWD,"buffer","too_long.txt")
-                            with open(too_long_txt,"w") as file:
-                                file.write(text)
-                                text = locale('too_long')
-                    text = f"{user} {msg_time}: \n  {text}"
-                    keyword_args = {"chat_id":GROUP_ID,"message_thread_id":channel} if type(channel)==int else {"chat_id":channel}
-                    print(message,Path,channel)
-                    if(not Path):
-                        await self.bot.send_message(**keyword_args,text=text)
-                        continue
-                    ext = Path.split('.')[-1].lower()
+                if(not self.queue.empty()):
+                    await self.process_chat()
+                if(not self.direct_queue.empty()):
+                    await self.process_direct()
+                await sleep(1)
+                continue
                 
-                    with open(Path,"br") as file:
-                        method,argument_name = self.MEDIA_METHODS.get(ext,self.bot.send_document)
-                        keyword_args.update({argument_name:file})
-                        await method(**keyword_args,caption=text)
-                    #remove(Path)
-                    if too_long_txt:
-                        with open(too_long_txt,"r") as file:
-                            keyword_args.update({argument_name:file})
-                            await self.bot.send_document(**keyword_args,caption=text)
-                        remove(too_long_txt)
-                except Exception:
-                    E = format_exc()
-                    LOGGER(self.name,MISCELLANIOUS_LOGS_TABLE,(E,now()))
-                finally:self.queue.task_done()
         @self.bot.message_handler(commands=["me"])
         async def me(message):
             await self.bot.send_message(message.chat.id,f"{locale('me_desc')}{message.chat.id}")
@@ -347,6 +370,9 @@ class Telegram():
             except Exception:
                     E = format_exc()
                     LOGGER(self.name,MISCELLANIOUS_LOGS_TABLE,(str(E),now()))
+        @self.bot.message_handler(func=lambda message:message.chat.type=="private" and message.reply_to_message)
+        async def direct_message(message):
+            pass
         @self.bot.message_handler(content_types=["text","sticker","photo","video","gif"])
         async def messages(message):
             time = now()
@@ -386,11 +412,12 @@ class Telegram():
                 LOGGER(MISCELLANIOUS_LOGS_TABLE,(str(E),now()))
                 EXIT_FLAG.set()
 class Site():
-    def __init__(self,site_queue:Queue,*args,**kwargs):
+    def __init__(self,site_queue:Queue,site_direct_queue:Queue,*args,**kwargs):
         self.name = "MMM_SITE"
         self.server_url = SITE_URL
         self.server_path = None
         self.queue = site_queue
+        self.direct_queue = site_direct_queue
         self.subscribers = queues.difference({self.queue})
         self.sio = AsyncClient()
         self.connected = False
@@ -398,14 +425,18 @@ class Site():
         self.sio.on('disconnect', self.on_disconnect,namespace="/chat")
         self.sio.on('receive_message', self.on_message,namespace="/chat")
 
-    async def connect(self):
-        await self.sio.connect(self.server_url,namespaces="/chat")
+        self.sio.on('connect', self.on_connect,namespace="/direct")
+        self.sio.on('disconnect', self.on_disconnect,namespace="/direct")
+        self.sio.on('receive_direct_message', self.on_direct_message,namespace="/direct")
+    async def connect(self,namespace):
+        await self.sio.connect(self.server_url,headers={"bot":BOT_KEY},namespaces=namespace)
     async def disconnect(self):
         await self.sio.disconnect()
-    async def send_message(self, message):
-        if not self.connected: await self.connect()
-        await self.sio.emit('send_message', message,namespace="/chat")
-    
+    async def send_message(self, message, namespace):
+        if not self.connected: await self.connect(namespace=namespace)
+        await self.sio.emit('send_message', message,namespace=namespace)
+    def on_direct_connect(self):
+        print('Direct connected')
     def on_connect(self):
         print('Server connected')
         self.connected = True
@@ -420,7 +451,10 @@ class Site():
     def on_disconnect(self):
         print("Server disconnected")
         self.connected = False
-
+    def on_direct_message(self,data):
+        request = ((data["name"],data["message"],data["time"],None,None),data["room_uuid"])
+        print(request)
+        telegram_direct_queue.put_nowait(request)
     def on_message(self, data):
         if "external" in data and data["external"]:
             return
@@ -446,18 +480,29 @@ class Site():
     async def process_queue(self):
         while not EXIT_FLAG.is_set():
             try:
-                await self.connect()
+                await self.connect("/chat")
+                await self.connect("/direct")
                 while not EXIT_FLAG.is_set():
-                    if(self.queue.empty()):
+                    queues_empty = self.queue.empty(),self.direct_queue.empty()
+                    if(all(queues_empty)):
                         await sleep(0.5)
-                        continue
-                    thing = await self.queue.get()
-                    message,path,channel = thing
-                    user,text,time = message
-                    if not channel in ROUTING or ROUTING[::-1][ROUTING.index(channel)].ID_to != -1:
-                        continue
-                    await self.send_message({"name":user,"time":time,"message":text,"unique_id":path,"channel":channel,"external":True})
-                    self.queue.task_done()
+                    if(not queues_empty[0]):
+                        thing = await self.queue.get()
+                        message,path,channel = thing
+                        user,text,time = message
+                        if not channel in ROUTING or ROUTING[::-1][ROUTING.index(channel)].ID_to != -1:
+                            continue
+                        await self.send_message({"name":user,"time":time,"message":text,"unique_id":path,"channel":channel,"external":True},namespace="/chat")
+                        self.queue.task_done()    
+                    if(not queues_empty[1]):
+                        thing = await self.queue.get()
+                        message,room_uuid,*_ = thing
+                        user,text,time,*_ = message
+                        if not channel in ROUTING or ROUTING[::-1][ROUTING.index(channel)].ID_to != -1:
+                            continue
+                        await self.send_message({"name":user,"time":time,"message":text,"room_uuid":room_uuid},namespace="/chat")
+                        self.queue.task_done()  
+                    
             except exceptions.ConnectionError:
                 pass
             except asyncio_exceptions.CancelledError:quit()
@@ -565,11 +610,11 @@ async def on_ready():
     _ = bot.loop.create_task(bot.check_queue_and_send())
     await bot.tree.sync(guild=Object(id=DISCORD_SERVER))
     CLI_START_FLAG.set()
-Thread(target=Telegram(telegram_queue,exception_handler()).main,daemon=True,name="TELEGRAM").start() 
+Thread(target=Telegram(telegram_queue,telegram_direct_queue,exception_handler()).main,daemon=True,name="TELEGRAM").start() 
 #Thread(target=bot.run,args=[DISCORD_TOKEN],kwargs={"log_handler":None},daemon=True,name="DISCORD").start()
 print("started")
 while True:
-    try:Site(site_queue).start()
+    try:Site(site_queue,site_direct_queue).start()
     except KeyboardInterrupt:
         EXIT_FLAG.set()
         run(bot.close())
