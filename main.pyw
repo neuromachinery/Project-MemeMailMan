@@ -446,7 +446,7 @@ class Site():
         await self.sio.disconnect()
         self.direct_connected, self.connected = False,False
     async def on_room_register(self, data):
-        print(f"Direct room registered: {data["room_uuid"]}")
+        print(f"Direct room registered: {data['room_uuid']}")
     async def send_message(self, message, namespace):
         await self.sio.emit('send_message', message,namespace=namespace)
     def on_direct_connect(self):
