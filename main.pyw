@@ -443,7 +443,6 @@ class Site():
         await self.sio.connect(self.server_url,headers={"bot":BOT_KEY},namespaces=["/chat","/direct"],wait=True,retry=10)
     async def disconnect(self):
         await self.sio.disconnect()
-        self.connect()
     async def on_room_register(self, data):
         print(f"Direct room registered: {data['room_uuid']}")
     async def send_message(self, message, namespace):
@@ -458,7 +457,8 @@ class Site():
         except TimeoutError:
             print("Site unresponsive")
     def on_disconnect(self):
-        print("Server disconnected")
+        print("Server disconnected, reconnecting")
+        self.connect()
     def on_direct_message(self,data):
         request = ((data["name"],data["message"],data["time"],None,None),data["room_uuid"])
         print(request)
