@@ -431,16 +431,13 @@ class Site():
         self.direct_queue = site_direct_queue
         self.subscribers = queues.difference({self.queue})
         self.sio = AsyncClient()
-        self.sio.on('connect', self.on_connect,namespace="/chat")
-        self.sio.on('disconnect', self.on_disconnect,namespace="/chat")
+        self.sio.on('connect', self.on_connect)
+        self.sio.on('disconnect', self.on_disconnect)
         self.sio.on('receive_message', self.on_message,namespace="/chat")
-
-        self.sio.on('connect', self.on_direct_connect,namespace="/direct")
-        self.sio.on('disconnect', self.on_direct_disconnect,namespace="/direct")
         self.sio.on('message', self.on_direct_message,namespace="/direct")
         self.sio.on('room_registered', self.on_room_register, namespace="/direct")
     async def connect(self):
-        await self.sio.connect(self.server_url,headers={"bot":BOT_KEY},namespaces=["/chat","/direct"],wait=True,retry=10)
+        await self.sio.connect(self.server_url,headers={"bot":BOT_KEY},namespaces=["/chat","/direct"],wait=True,retry=True)
     async def disconnect(self):
         await self.sio.disconnect()
     async def on_room_register(self, data):
