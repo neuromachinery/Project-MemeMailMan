@@ -431,7 +431,6 @@ class Site():
         self.direct_queue = site_direct_queue
         self.subscribers = queues.difference({self.queue})
         self.sio = AsyncClient()
-        self.connected = False
         self.sio.on('connect', self.on_connect,namespace="/chat")
         self.sio.on('disconnect', self.on_disconnect,namespace="/chat")
         self.sio.on('receive_message', self.on_message,namespace="/chat")
@@ -444,17 +443,13 @@ class Site():
         await self.sio.connect(self.server_url,headers={"bot":BOT_KEY},namespaces=["/chat","/direct"],wait=True,retry=10)
     async def disconnect(self):
         await self.sio.disconnect()
-        self.direct_connected, self.connected = False,False
+        self.connect()
     async def on_room_register(self, data):
         print(f"Direct room registered: {data['room_uuid']}")
     async def send_message(self, message, namespace):
         await self.sio.emit('send_message', message,namespace=namespace)
-    def on_direct_connect(self):
-        print(f'Direct connected: {self.sio.sid}')
-        self.direct_connected = True
     def on_connect(self):
         print(f'Server connected: {self.sio.sid}')
-        self.connected = True
         if self.server_path:return
         Transiever.send_message(ADDRESS_DICT["SITE"],"MMM","SITE","GET","CWD+UPLOADS")
         try:
@@ -462,12 +457,8 @@ class Site():
             self.server_path = message["message"]
         except TimeoutError:
             print("Site unresponsive")
-    def on_direct_disconnect(self):
-        print("Direct disconnected")
-        self.direct_connected = False
     def on_disconnect(self):
         print("Server disconnected")
-        self.connected = False
     def on_direct_message(self,data):
         request = ((data["name"],data["message"],data["time"],None,None),data["room_uuid"])
         print(request)
@@ -497,7 +488,6 @@ class Site():
     async def process_queue(self):
         while not EXIT_FLAG.is_set():
             try:
-                await self.connect()
                 while not EXIT_FLAG.is_set():
                     queues_empty = self.queue.empty(),self.direct_queue.empty()
                     if(all(queues_empty)):
