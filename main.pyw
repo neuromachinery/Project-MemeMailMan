@@ -443,7 +443,13 @@ class Site():
     async def on_room_register(self, data):
         print(f"Direct room registered: {data['room_uuid']}")
     async def send_message(self, message, namespace):
-        await self.sio.emit('send_message', message,namespace=namespace)
+        while True:
+            try:
+                await self.sio.emit('send_message', message,namespace=namespace)
+                return
+            except exceptions.BadNamespaceError as E:
+                print(E)
+                await self.connect()
     def on_connect(self):
         print(f'Server connected: {self.sio.sid}')
         if self.server_path:return
@@ -455,7 +461,7 @@ class Site():
             print("Site unresponsive")
     def on_disconnect(self):
         print("Server disconnected, reconnecting")
-        self.connect()
+        self.connected = False
     def on_direct_message(self,data):
         request = ((data["name"],data["message"],data["time"],None,None),data["room_uuid"])
         print(request)
